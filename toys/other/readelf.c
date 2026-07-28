@@ -31,6 +31,7 @@ config READELF
 
 #define FOR_readelf
 #include "toys.h"
+#include "readelf_toybox_api.h"
 
 GLOBALS(
   char *x, *p;
@@ -454,31 +455,71 @@ static void scan_elf()
   struct sh dynamic = {}, dynstr = {}, dynsym = {}, shstr = {}, strtab = {},
     symtab = {}, s;
   struct ph ph;
-  char *hdr = TT.elf;
-  int type, machine, version, flags, entry, ehsize, phnum, shstrndx, i, j, w;
+  yukisu_readelf_header header;
+  yukisu_readelf_status status;
+  unsigned version, flags;
+  unsigned long long entry;
+  int type, machine, ehsize, phnum, shstrndx, i, j, w;
 
-  if (TT.size < 45 || smemcmp(hdr, "\177ELF", 4))
-    return error_msg("%s: not ELF", TT.f);
+  status = yukisu_readelf_parse_header(TT.elf, TT.size, TT.size, &header, 0);
+  if (status != YUKISU_READELF_OK)
+    return error_msg("%s: %s", TT.f, yukisu_readelf_status_string(status));
 
-  TT.bits = hdr[4] - 1;
-  TT.endian = hdr[5];
-  if (TT.bits<0 || TT.bits>1 || TT.endian<1 || TT.endian>2 || hdr[6]!=1)
-    return error_msg("%s: bad ELF", TT.f);
+  TT.bits = header.elf_class - 1;
+  TT.endian = header.data_encoding;
+  type = header.type;
+  machine = header.machine;
+  version = header.elf_version;
+  entry = header.entry;
+  TT.phoff = header.program_header_offset;
+  TT.shoff = header.section_header_offset;
+  flags = header.flags;
+  ehsize = header.header_size;
+  TT.phentsize = header.program_header_entry_size;
+  phnum = header.program_header_count;
+  TT.shentsize = header.section_header_entry_size;
+  TT.shnum = header.section_header_count;
+  shstrndx = header.section_name_index;
 
-  hdr += 16; // EI_NIDENT
-  type = elf_short(&hdr);
-  machine = elf_short(&hdr);
-  version = elf_int(&hdr);
-  entry = elf_long(&hdr);
-  TT.phoff = elf_long(&hdr);
-  TT.shoff = elf_long(&hdr);
-  flags = elf_int(&hdr);
-  ehsize = elf_short(&hdr);
-  TT.phentsize = elf_short(&hdr);
-  phnum = elf_short(&hdr);
-  TT.shentsize = elf_short(&hdr);
-  TT.shnum = elf_short(&hdr);
-  shstrndx = elf_short(&hdr);
+  if (header.header_flags) {
+    char *section_zero = TT.elf + TT.shoff;
+    unsigned long long extended_shnum;
+    unsigned extended_shstrndx, extended_phnum;
+
+    // Extended ELF numbering stores the real values in section header zero:
+    // sh_size for shnum, sh_link for shstrndx, and sh_info for phnum.
+    (void)elf_int(&section_zero);
+    (void)elf_int(&section_zero);
+    (void)elf_long(&section_zero);
+    (void)elf_long(&section_zero);
+    (void)elf_long(&section_zero);
+    extended_shnum = elf_long(&section_zero);
+    extended_shstrndx = elf_int(&section_zero);
+    extended_phnum = elf_int(&section_zero);
+
+    if (header.header_flags & YUKISU_READELF_EXTENDED_PHNUM) {
+      if (extended_phnum > INT_MAX)
+        return error_msg("%s: extended phnum too large", TT.f);
+      phnum = extended_phnum;
+    }
+    if (header.header_flags & YUKISU_READELF_EXTENDED_SHNUM) {
+      if (extended_shnum > INT_MAX)
+        return error_msg("%s: extended shnum too large", TT.f);
+      TT.shnum = extended_shnum;
+    }
+    if (header.header_flags & YUKISU_READELF_EXTENDED_SHSTRNDX) {
+      if (extended_shstrndx > INT_MAX)
+        return error_msg("%s: extended shstrndx too large", TT.f);
+      shstrndx = extended_shstrndx;
+    }
+  }
+
+  if ((phnum && (TT.phoff > TT.size ||
+                 (unsigned long long)TT.phentsize*phnum > TT.size-TT.phoff)) ||
+      (TT.shnum && (TT.shoff > TT.size ||
+                    (unsigned long long)TT.shentsize*TT.shnum >
+                        TT.size-TT.shoff)))
+    return error_msg("%s: ELF header table outside file", TT.f);
 
   if (toys.optc > 1) printf("\nFile: %s\n", TT.f);
 
@@ -495,7 +536,7 @@ static void scan_elf()
     printf("  Type:                              %s\n", et_type(type));
     printf("  Machine:                           %s\n", elf_arch_name(machine));
     printf("  Version:                           0x%x\n", version);
-    printf("  Entry point address:               0x%x\n", entry);
+    printf("  Entry point address:               0x%llx\n", entry);
     printf("  Start of program headers:          %llu (bytes into file)\n",
            TT.phoff);
     printf("  Start of section headers:          %llu (bytes into file)\n",
@@ -565,7 +606,7 @@ static void scan_elf()
     if (!phnum) printf("There are no program headers in this file.\n");
     else {
       if (!FLAG(h))
-        printf("Elf file type is %s\nEntry point %#x\n"
+        printf("Elf file type is %s\nEntry point %#llx\n"
           "There are %d program headers, starting at offset %lld\n\n",
           et_type(type), entry, phnum, TT.phoff);
       printf("Program Headers:\n"

@@ -13,8 +13,17 @@ The snapshot contains upstream `main.c`, `toys.h`, `lib/*`,
 with only `CONFIG_READELF=y` enabled. The corresponding Kconfig output is
 stored in `readelf.config`.
 
-No ELF parsing code is maintained by YukiSU. The CMake target compiles the
-upstream sources into a private static archive. Every symbol defined by that
-archive is rewritten with the `yukisu_toybox_` prefix before linking,
-preventing collisions with the BusyBox implementation already linked into
-ksud. `ksud readelf` dispatches to the namespaced Toybox entry point.
+YukiSU extends the standalone project with
+`include/readelf_toybox_api.h`: a versioned, reentrant C API that returns a
+fixed-width ELF-header structure without using stdio, process exits, or
+Toybox global state. The header decoder was extracted from Toybox readelf and
+the command-line applet now consumes the same API, so ksud does not carry a
+second parser. The extension also preserves the full 64-bit ELF entry point.
+
+The CMake target compiles the upstream CLI into a private static archive.
+Every symbol defined by that archive is rewritten with the
+`yukisu_toybox_` prefix before linking, preventing collisions with the BusyBox
+implementation already linked into ksud. The structured API is built as a
+separate core target with uniquely prefixed symbols. `ksud readelf` dispatches
+to the namespaced Toybox entry point, while the ramdisk editor calls the
+structured API directly.

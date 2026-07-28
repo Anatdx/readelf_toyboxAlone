@@ -15,6 +15,17 @@ file(GLOB READELF_TOYBOX_LIB_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/*.c
 )
 
+add_library(readelf_toybox_core STATIC
+    readelf_api.c
+)
+target_include_directories(readelf_toybox_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_options(readelf_toybox_core PRIVATE
+    -ffunction-sections
+    -fdata-sections
+)
+
 add_library(readelf_toybox_raw STATIC
     main.c
     toys/other/readelf.c
@@ -22,6 +33,7 @@ add_library(readelf_toybox_raw STATIC
 )
 target_include_directories(readelf_toybox_raw PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 target_compile_definitions(readelf_toybox_raw PRIVATE
     TOYBOX_VERSION="0.8.12"
@@ -69,7 +81,11 @@ add_library(readelf_toybox INTERFACE)
 add_dependencies(readelf_toybox readelf_toybox_namespaced)
 target_link_libraries(readelf_toybox INTERFACE
     ${READELF_TOYBOX_NAMESPACED_ARCHIVE}
+    readelf_toybox_core
     m
+)
+target_include_directories(readelf_toybox INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -82,5 +98,15 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_readelf.py
             $<TARGET_FILE:readelf>
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/files/elf/ndk-elf-note-full
+    )
+    add_executable(readelf_structured_api_test
+        tests/structured_api_test.c
+    )
+    target_link_libraries(readelf_structured_api_test PRIVATE
+        readelf_toybox_core
+    )
+    add_test(
+        NAME readelf_structured_api
+        COMMAND readelf_structured_api_test
     )
 endif()
