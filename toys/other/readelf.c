@@ -95,13 +95,20 @@ static int fits(char *what, int n, unsigned long long off, unsigned long long si
 
 static int get_sh(unsigned i, struct sh *s)
 {
-  char *shdr = TT.elf+TT.shoff+i*TT.shentsize;
+  unsigned long long entry_offset, relative_offset;
+  char *shdr;
   unsigned name_offset;
 
-  if (i >= TT.shnum || shdr > TT.elf+TT.size-TT.shentsize) {
-    printf("No shdr %d\n", i);
+  relative_offset = (unsigned long long)i*TT.shentsize;
+  if (i >= (unsigned)TT.shnum || TT.shoff > TT.size ||
+      relative_offset > TT.size-TT.shoff ||
+      (unsigned long long)TT.shentsize >
+          TT.size-TT.shoff-relative_offset) {
+    printf("No shdr %u\n", i);
     return 0;
   }
+  entry_offset = TT.shoff+relative_offset;
+  shdr = TT.elf+entry_offset;
 
   name_offset = elf_int(&shdr);
   s->type = elf_int(&shdr);
@@ -149,12 +156,22 @@ static int find_section(char *spec, struct sh *s)
 
 static int get_ph(int i, struct ph *ph)
 {
-  char *phdr = TT.elf+TT.phoff+i*TT.phentsize;
+  unsigned long long entry_offset, relative_offset;
+  char *phdr;
 
-  if (phdr > TT.elf+TT.size-TT.phentsize) {
+  if (i < 0 || TT.phoff > TT.size) {
     printf("Bad phdr %d\n", i);
     return 0;
   }
+  relative_offset = (unsigned long long)(unsigned)i*TT.phentsize;
+  if (relative_offset > TT.size-TT.phoff ||
+      (unsigned long long)TT.phentsize >
+          TT.size-TT.phoff-relative_offset) {
+    printf("Bad phdr %d\n", i);
+    return 0;
+  }
+  entry_offset = TT.phoff+relative_offset;
+  phdr = TT.elf+entry_offset;
 
   // Elf64_Phdr reordered fields.
   ph->type = elf_int(&phdr);
